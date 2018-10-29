@@ -1,0 +1,35 @@
+#######################################
+# Syntax Coloring Map For GateOpenerStateMachine
+#######################################
+
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+GateOpenerStateMachine	KEYWORD1
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+set_state				KEYWORD2
+get_state				KEYWORD2
+get_position			KEYWORD2
+get_position_percent	KEYWORD2
+get_imotor				KEYWORD2
+get_max_imotor			KEYWORD2
+set_max_imotor			KEYWORD2
+set_auto_close_time		KEYWORD2
+get_auto_close_time		KEYWORD2
+learn_closed_position	KEYWORD2
+get_closed_position		KEYWORD2
+get_open_position		KEYWORD2
+valid_closed_position	KEYWORD2
+open					KEYWORD2
+close					KEYWORD2
+cycle					KEYWORD2
+check					KEYWORD2
+#######################################
+# Instances (KEYWORD2)
+#######################################
+
+#######################################
+# Constants (LITERAL1)
+#######################################

@@ -1,0 +1,266 @@
+#include "GateOpenerStateMachine.h"
+
+void GateOpenerStateMachine::nvm_save()
+{
+  byte valid = NVM_VALID_KEY;
+  int size = sizeof(valid)+sizeof(closed_pos)+sizeof(auto_close_time)+sizeof(max_imotor)+sizeof(open_pos);
+  #if defined(ARDUINO_ARCH_ESP8266)
+    EEPROM.begin(size);
+  #endif
+  int var_offset=0;
+  EEPROM.put(nvm_offset, valid);
+  EEPROM.put(nvm_offset+(var_offset+=sizeof(valid)), closed_pos);
+  EEPROM.put(nvm_offset+(var_offset+=sizeof(closed_pos)), auto_close_time);
+  EEPROM.put(nvm_offset+(var_offset+=sizeof(auto_close_time)), max_imotor);
+  EEPROM.put(nvm_offset+(var_offset+=sizeof(max_imotor)), open_pos);
+  #if defined(ARDUINO_ARCH_ESP8266)
+    EEPROM.end();
+  #endif
+  delay(100);
+}
+
+void GateOpenerStateMachine::nvm_load()
+{
+  byte valid;
+  int size = sizeof(valid)+sizeof(closed_pos)+sizeof(auto_close_time)+sizeof(max_imotor)+sizeof(open_pos);
+  #if defined(ARDUINO_ARCH_ESP8266)
+    EEPROM.begin(size);
+  #endif
+  int var_offset=0;
+  EEPROM.get(nvm_offset, valid);
+  EEPROM.get(nvm_offset+(var_offset+=sizeof(valid)), closed_pos);
+  EEPROM.get(nvm_offset+(var_offset+=sizeof(closed_pos)), auto_close_time);
+  EEPROM.get(nvm_offset+(var_offset+=sizeof(auto_close_time)), max_imotor);
+  EEPROM.get(nvm_offset+(var_offset+=sizeof(max_imotor)), open_pos);
+  #if defined(ARDUINO_ARCH_ESP8266)
+    EEPROM.end();
+  #endif
+  if (valid!=NVM_VALID_KEY)
+  {
+    closed_pos = INVALID_POS;
+    auto_close_time = INVALID_AUTO_CLOSE_TIME;
+    max_imotor = INVALID_MAX_IMOTOR;
+    open_pos = INVALID_POS;
+  }
+}
+
+GateOpenerStateMachine::GateOpenerStateMachine(unsigned int _motor_pinA, unsigned int _motor_pinB,
+  unsigned int _pot_pin, unsigned int _isens_pin, unsigned int _led_pin, int _nvm_offset)
+{
+  current_state = 0;
+  last_state = 1;
+  pot_pin = _pot_pin;
+  isens_pin = _isens_pin;
+  nvm_offset = _nvm_offset;
+  nvm_load();
+  motor = new Motor(_motor_pinA, _motor_pinB);
+  pos = new SmoothADS1015();
+  pos->setup(pot_pin,NAVG);
+  pos->setup(isens_pin,NAVG);
+  imotor_offset = pos->read(isens_pin);
+  etp_auto_close = new EnoughTimePassed(auto_close_time);
+  etp_auto_close->event();
+  etp_imotor_delay = new EnoughTimePassed(IMOTOR_DELAY);
+  past_imotor_delay = true;
+  current_pos = pos->read(pot_pin);
+  led_go = new SignalLED(_led_pin, SLED_OFF, true);
+  etp_led_go_delay = new EnoughTimePassed(LED_GO_DELAY);
+}
+
+GateOpenerStateMachine::~GateOpenerStateMachine()
+{
+  delete motor;
+  delete pos;
+  delete etp_auto_close;
+  delete etp_imotor_delay;
+  delete led_go;
+  delete etp_led_go_delay;
+}
+
+void GateOpenerStateMachine::set_state(int state)
+{
+  last_state = current_state;
+  current_state = state;
+  past_imotor_delay = false;
+  etp_imotor_delay->event();
+}
+
+int GateOpenerStateMachine::get_state()
+{
+  return current_state;
+}
+
+int GateOpenerStateMachine::get_position()
+{
+  return current_pos;
+}
+
+int GateOpenerStateMachine::get_position_percent()
+{
+  if ((closed_pos==INVALID_POS) && (open_pos==INVALID_POS))
+    return INVALID_POS;
+  else if ((closed_pos==INVALID_POS) && current_pos<=open_pos)
+    return 0;
+  else if ((open_pos==INVALID_POS) && (current_pos>=closed_pos))
+    return 100;
+  else
+  {
+    int pos = int(round(float(current_pos-open_pos)/float(closed_pos-open_pos)*100));
+    if (pos>100-POS_TOL)
+      pos=100;
+    if (pos<0+POS_TOL)
+      pos=0;
+    return pos;
+  }
+}
+
+int GateOpenerStateMachine::get_imotor()
+{
+  return current_imotor-imotor_offset;
+}
+
+int GateOpenerStateMachine::get_max_imotor()
+{
+  return max_imotor;
+}
+
+void GateOpenerStateMachine::set_max_imotor(int _max_imotor)
+{
+  max_imotor = _max_imotor;
+  nvm_save();
+  Serial.printf("Max motor current set to %d\n", max_imotor);
+}
+
+void GateOpenerStateMachine::set_auto_close_time(unsigned long _auto_close_time)
+{
+  auto_close_time = _auto_close_time;
+  nvm_save();
+  Serial.printf("Auto close time set to %dms\n", auto_close_time);
+}
+
+unsigned long GateOpenerStateMachine::get_auto_close_time()
+{
+  return auto_close_time;
+}
+
+bool GateOpenerStateMachine::learn_closed_position()
+{
+  if (current_state==0)
+  {
+    if (closed_pos==INVALID_POS)
+    {
+      closed_pos = current_pos;
+      led_go->set(SLED_ON);
+      etp_led_go_delay->event();
+    }
+    else
+    {
+      closed_pos = INVALID_POS;
+      led_go->set(SLED_BLINK_FAST);
+      etp_led_go_delay->event();
+    }
+    nvm_save();
+  }
+  return (closed_pos != INVALID_POS) ? (true) : (false);
+}
+
+int GateOpenerStateMachine::get_closed_position()
+{
+  return closed_pos;
+}
+
+int GateOpenerStateMachine::get_open_position()
+{
+  return open_pos;
+}
+
+bool GateOpenerStateMachine::valid_closed_position()
+{
+  return (closed_pos != INVALID_POS) ? (true) : (false);
+}
+
+void GateOpenerStateMachine::open()
+{
+  if (current_state!=0)
+  {
+    set_state(0);
+  }
+  set_state(-1);
+}
+
+void GateOpenerStateMachine::close()
+{
+  if (current_state!=0)
+  {
+    set_state(0);
+  }
+  set_state(1);
+}
+
+int GateOpenerStateMachine::cycle()
+{
+  if (current_state==0)
+    set_state(-last_state);
+  else
+    set_state(0);
+  return current_state;
+}
+
+void GateOpenerStateMachine::check()
+{
+  current_pos = pos->read(pot_pin);
+  current_imotor = pos->read(isens_pin);
+
+  if (current_state==0 && abs(current_imotor-imotor_offset)>IMOTOR_ZERO_TOL && past_imotor_delay)
+    imotor_offset=current_imotor;
+
+  if (etp_led_go_delay->enough_time())
+    led_go->set(SLED_OFF);
+  led_go->check();
+
+  if (etp_imotor_delay->enough_time())
+    past_imotor_delay = true;
+
+  if (current_pos>open_pos+POS_TOL || current_state!=0 || auto_close_time==INVALID_AUTO_CLOSE_TIME || closed_pos==INVALID_POS)
+    etp_auto_close->event();
+  if (etp_auto_close->enough_time() && auto_close_time!=INVALID_AUTO_CLOSE_TIME && closed_pos!=INVALID_POS && open_pos!=INVALID_POS)
+  {
+    set_state(1);
+    Serial.println("Auto close initiated.");
+  }
+
+  if ((abs(get_imotor())<IMOTOR_ZERO_TOL) && (current_state==-1) && past_imotor_delay)
+  {
+    set_state(0);
+    led_go->set(SLED_BLINK_FAST_3);
+    etp_led_go_delay->event();
+    Serial.println("Open position reached.");
+    if (abs(current_pos-open_pos)>POS_TOL)
+    {
+      open_pos = current_pos;
+      nvm_save();
+    }
+  }
+  if (current_pos>=closed_pos && current_state==1)
+  {
+    set_state(0);
+    led_go->set(SLED_BLINK_FAST_1);
+    etp_led_go_delay->event();
+    Serial.println("Closed position reached.");
+  }
+
+  if ((abs(get_imotor())>max_imotor) && max_imotor!=INVALID_MAX_IMOTOR && past_imotor_delay)
+  {
+    set_state(0);
+    led_go->set(SLED_BLINK_SLOW);
+    etp_led_go_delay->event();
+    Serial.println("Motor current limit!");
+  }
+
+  if (current_state==0)
+    motor->stop();
+  if (current_state==-1)
+    motor->rev();
+  if (current_state==1)
+    motor->fwd();
+}
