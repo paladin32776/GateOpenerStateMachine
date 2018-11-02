@@ -1,19 +1,40 @@
 #include "GateOpenerStateMachine.h"
 
+void GateOpenerStateMachine::dump_flash(int addr, int cnt)
+{
+  byte x;
+  Serial.printf("\n*** FLASH DUMP BEGIN ***");
+  EEPROM.begin(addr+cnt);
+  for (int n=addr; n<addr+cnt; n++)
+  {
+      x = EEPROM.read(n);
+      if ((n-addr)%16==0)
+        Serial.printf("\n%d  ", n);
+      else if (n==addr)
+        Serial.println();
+      Serial.printf("%d ",x);
+  }
+  Serial.printf("\n*** FLASH DUMP END ***\n");
+  EEPROM.end();
+}
+
 void GateOpenerStateMachine::nvm_save()
 {
   byte valid = NVM_VALID_KEY;
+  Serial.printf("nvm_save() with (nvm_offset=%d):\nvalid=%d  closed_pos=%d  auto_close_time=%d  max_imotor=%d  open_pos=%d\n",
+                nvm_offset, valid, closed_pos, auto_close_time, max_imotor, open_pos);
   int size = sizeof(valid)+sizeof(closed_pos)+sizeof(auto_close_time)+sizeof(max_imotor)+sizeof(open_pos);
   #if defined(ARDUINO_ARCH_ESP8266)
-    EEPROM.begin(size);
+    EEPROM.begin(size+nvm_offset);
   #endif
-  int var_offset=0;
-  EEPROM.put(nvm_offset, valid);
-  EEPROM.put(nvm_offset+(var_offset+=sizeof(valid)), closed_pos);
+  int var_offset=1;
+  EEPROM.write(nvm_offset, valid);
+  EEPROM.put(nvm_offset+var_offset, closed_pos);
   EEPROM.put(nvm_offset+(var_offset+=sizeof(closed_pos)), auto_close_time);
   EEPROM.put(nvm_offset+(var_offset+=sizeof(auto_close_time)), max_imotor);
   EEPROM.put(nvm_offset+(var_offset+=sizeof(max_imotor)), open_pos);
   #if defined(ARDUINO_ARCH_ESP8266)
+    EEPROM.commit();
     EEPROM.end();
   #endif
   delay(100);
@@ -24,11 +45,11 @@ void GateOpenerStateMachine::nvm_load()
   byte valid;
   int size = sizeof(valid)+sizeof(closed_pos)+sizeof(auto_close_time)+sizeof(max_imotor)+sizeof(open_pos);
   #if defined(ARDUINO_ARCH_ESP8266)
-    EEPROM.begin(size);
+    EEPROM.begin(size+nvm_offset);
   #endif
-  int var_offset=0;
-  EEPROM.get(nvm_offset, valid);
-  EEPROM.get(nvm_offset+(var_offset+=sizeof(valid)), closed_pos);
+  int var_offset=1;
+  valid = EEPROM.read(nvm_offset);
+  EEPROM.get(nvm_offset+var_offset, closed_pos);
   EEPROM.get(nvm_offset+(var_offset+=sizeof(closed_pos)), auto_close_time);
   EEPROM.get(nvm_offset+(var_offset+=sizeof(auto_close_time)), max_imotor);
   EEPROM.get(nvm_offset+(var_offset+=sizeof(max_imotor)), open_pos);
@@ -37,11 +58,14 @@ void GateOpenerStateMachine::nvm_load()
   #endif
   if (valid!=NVM_VALID_KEY)
   {
+    Serial.println("EEPROM data invalid - using default values.");
     closed_pos = INVALID_POS;
     auto_close_time = INVALID_AUTO_CLOSE_TIME;
     max_imotor = INVALID_MAX_IMOTOR;
     open_pos = INVALID_POS;
   }
+  Serial.printf("nvm_load() result (nvm_offset=%d):\nvalid=%d  closed_pos=%d  auto_close_time=%d  max_imotor=%d  open_pos=%d\n",
+                nvm_offset, valid, closed_pos, auto_close_time, max_imotor, open_pos);
 }
 
 GateOpenerStateMachine::GateOpenerStateMachine(unsigned int _motor_pinA, unsigned int _motor_pinB,
@@ -135,6 +159,7 @@ void GateOpenerStateMachine::set_auto_close_time(unsigned long _auto_close_time)
 {
   auto_close_time = _auto_close_time;
   nvm_save();
+  etp_auto_close->change_intervall(auto_close_time);
   Serial.printf("Auto close time set to %dms\n", auto_close_time);
 }
 
@@ -179,22 +204,29 @@ bool GateOpenerStateMachine::valid_closed_position()
   return (closed_pos != INVALID_POS) ? (true) : (false);
 }
 
+bool GateOpenerStateMachine::valid_open_position()
+{
+  return (open_pos != INVALID_POS) ? (true) : (false);
+}
+
 void GateOpenerStateMachine::open()
 {
-  if (current_state!=0)
-  {
-    set_state(0);
-  }
+  stop();
   set_state(-1);
 }
 
 void GateOpenerStateMachine::close()
 {
+  stop();
+  set_state(1);
+}
+
+void GateOpenerStateMachine::stop()
+{
   if (current_state!=0)
   {
     set_state(0);
   }
-  set_state(1);
 }
 
 int GateOpenerStateMachine::cycle()
@@ -221,8 +253,10 @@ void GateOpenerStateMachine::check()
   if (etp_imotor_delay->enough_time())
     past_imotor_delay = true;
 
-  if (current_pos>open_pos+POS_TOL || current_state!=0 || auto_close_time==INVALID_AUTO_CLOSE_TIME || closed_pos==INVALID_POS)
+  if (current_pos>open_pos+POS_TOL || current_state!=0 || auto_close_time==INVALID_AUTO_CLOSE_TIME || closed_pos==INVALID_POS || open_pos==INVALID_POS)
     etp_auto_close->event();
+  else
+    Serial.print("#");
   if (etp_auto_close->enough_time() && auto_close_time!=INVALID_AUTO_CLOSE_TIME && closed_pos!=INVALID_POS && open_pos!=INVALID_POS)
   {
     set_state(1);

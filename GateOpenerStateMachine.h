@@ -4,7 +4,7 @@
 #include "SignalLED.h"
 #include <EEPROM.h>
 #define NAVG 20
-#define NVM_VALID_KEY 222
+#define NVM_VALID_KEY 223
 #define INVALID_POS 32767
 #define INVALID_AUTO_CLOSE_TIME 0
 #define INVALID_MAX_IMOTOR 0
@@ -54,8 +54,11 @@ class GateOpenerStateMachine
     int get_closed_position();
     int get_open_position();
     bool valid_closed_position();
+    bool valid_open_position();
     void open();
     void close();
+    void stop();
     int cycle();
     void check();
+    void dump_flash(int addr, int cnt);
 };
