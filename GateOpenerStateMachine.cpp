@@ -78,7 +78,7 @@ GateOpenerStateMachine::GateOpenerStateMachine(unsigned int _motor_pinA, unsigne
   nvm_offset = _nvm_offset;
   nvm_load();
   motor = new Motor(_motor_pinA, _motor_pinB);
-  pos = new SmoothADS1015();
+  pos = new SmoothADS1015(14,2); // SDA GPIO pin, SCL GPIO pin
   pos->setup(pot_pin,NAVG);
   pos->setup(isens_pin,NAVG);
   imotor_offset = pos->read(isens_pin);
