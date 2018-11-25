@@ -87,7 +87,7 @@ GateOpenerStateMachine::GateOpenerStateMachine(unsigned int _motor_pinA, unsigne
   etp_imotor_delay = new EnoughTimePassed(IMOTOR_DELAY);
   past_imotor_delay = true;
   current_pos = pos->read(pot_pin);
-  led_go = new SignalLED(_led_pin, SLED_OFF, true);
+  led_go = new SignalLED(_led_pin, SLED_OFF, false);
   etp_led_go_delay = new EnoughTimePassed(LED_GO_DELAY);
 }
 
@@ -157,15 +157,15 @@ void GateOpenerStateMachine::set_max_imotor(int _max_imotor)
 
 void GateOpenerStateMachine::set_auto_close_time(unsigned long _auto_close_time)
 {
-  auto_close_time = _auto_close_time;
+  auto_close_time = _auto_close_time*1000;
   nvm_save();
   etp_auto_close->change_intervall(auto_close_time);
-  Serial.printf("Auto close time set to %dms\n", auto_close_time);
+  Serial.printf("Auto close time set to %ds\n", auto_close_time/1000);
 }
 
 unsigned long GateOpenerStateMachine::get_auto_close_time()
 {
-  return auto_close_time;
+  return auto_close_time/1000;
 }
 
 bool GateOpenerStateMachine::learn_closed_position()
