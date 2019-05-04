@@ -51,6 +51,9 @@ class GateOpenerStateMachine
     void set_auto_close_time(unsigned long _auto_close_time);
     unsigned long get_auto_close_time();
     bool learn_closed_position();
+    bool learn_open_position();
+    void set_open_position(int position);
+    void set_closed_position(int position);
     int get_closed_position();
     int get_open_position();
     bool valid_closed_position();

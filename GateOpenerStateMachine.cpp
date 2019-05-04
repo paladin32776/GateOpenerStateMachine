@@ -189,6 +189,40 @@ bool GateOpenerStateMachine::learn_closed_position()
   return (closed_pos != INVALID_POS) ? (true) : (false);
 }
 
+bool GateOpenerStateMachine::learn_open_position()
+{
+  if (current_state==0)
+  {
+    if (open_pos==INVALID_POS)
+    {
+      open_pos = current_pos;
+      led_go->set(SLED_ON);
+      etp_led_go_delay->event();
+    }
+    else
+    {
+      open_pos = INVALID_POS;
+      led_go->set(SLED_BLINK_FAST);
+      etp_led_go_delay->event();
+    }
+    nvm_save();
+  }
+  return (open_pos != INVALID_POS) ? (true) : (false);
+}
+
+
+void GateOpenerStateMachine::set_open_position(int position)
+{
+  open_pos = position;
+  nvm_save();
+}
+
+void GateOpenerStateMachine::set_closed_position(int position)
+{
+  closed_pos = position;
+  nvm_save();
+}
+
 int GateOpenerStateMachine::get_closed_position()
 {
   return closed_pos;
@@ -269,7 +303,7 @@ void GateOpenerStateMachine::check()
     led_go->set(SLED_BLINK_FAST_3);
     etp_led_go_delay->event();
     Serial.println("Open position reached.");
-    if (abs(current_pos-open_pos)>POS_TOL)
+    if ((abs(current_pos-open_pos)>POS_TOL) && (open_pos==INVALID_POS))
     {
       open_pos = current_pos;
       nvm_save();
