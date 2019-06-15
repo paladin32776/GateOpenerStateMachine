@@ -1,4 +1,5 @@
 #include "GateOpenerStateMachine.h"
+extern WiHomeComm whc;
 
 void GateOpenerStateMachine::dump_flash(int addr, int cnt)
 {
@@ -89,6 +90,7 @@ GateOpenerStateMachine::GateOpenerStateMachine(unsigned int _motor_pinA, unsigne
   current_pos = pos->read(pot_pin);
   led_go = new SignalLED(_led_pin, SLED_OFF, false);
   etp_led_go_delay = new EnoughTimePassed(LED_GO_DELAY);
+  just_stopped_flag = false;
 }
 
 GateOpenerStateMachine::~GateOpenerStateMachine()
@@ -103,10 +105,15 @@ GateOpenerStateMachine::~GateOpenerStateMachine()
 
 void GateOpenerStateMachine::set_state(int state)
 {
-  last_state = current_state;
-  current_state = state;
-  past_imotor_delay = false;
-  etp_imotor_delay->event();
+  if (state!=current_state)
+  {
+    last_state = current_state;
+    current_state = state;
+    past_imotor_delay = false;
+    etp_imotor_delay->event();
+    if (state==0)
+      just_stopped_flag=true;
+  }
 }
 
 int GateOpenerStateMachine::get_state()
@@ -243,6 +250,17 @@ bool GateOpenerStateMachine::valid_open_position()
   return (open_pos != INVALID_POS) ? (true) : (false);
 }
 
+bool GateOpenerStateMachine::just_stopped()
+{
+  if (just_stopped_flag && past_imotor_delay)
+  {
+    just_stopped_flag=false;
+    return true;
+  }
+  else
+    return false;
+}
+
 void GateOpenerStateMachine::open()
 {
   stop();
@@ -278,7 +296,11 @@ void GateOpenerStateMachine::check()
   current_imotor = pos->read(isens_pin);
 
   if (current_state==0 && abs(current_imotor-imotor_offset)>IMOTOR_ZERO_TOL && past_imotor_delay)
+  {
     imotor_offset=current_imotor;
+    whc.sendJSON("cmd","debug", "msg","Setting new imotor_offset.",
+                 "imotor_offset",imotor_offset);
+  }
 
   if (etp_led_go_delay->enough_time())
     led_go->set(SLED_OFF);
@@ -295,14 +317,18 @@ void GateOpenerStateMachine::check()
   {
     set_state(1);
     Serial.println("Auto close initiated.");
+    whc.sendJSON("cmd","debug","msg","Auto close initiated.");
   }
 
-  if ((abs(get_imotor())<IMOTOR_ZERO_TOL) && (current_state==-1) && past_imotor_delay)
+  if (((abs(get_imotor())<IMOTOR_ZERO_TOL) && (current_state==-1) && past_imotor_delay && (open_pos==INVALID_POS)) || ((open_pos!=INVALID_POS) && (abs(current_pos-open_pos)<POS_TOL) && (current_state==-1)))
   {
     set_state(0);
     led_go->set(SLED_BLINK_FAST_3);
     etp_led_go_delay->event();
     Serial.println("Open position reached.");
+    whc.sendJSON("cmd","debug", "msg","Open position reached.",
+                 "imotor",get_imotor(), "current_imotor",current_imotor,
+                 "imotor_offset", imotor_offset);
     if ((abs(current_pos-open_pos)>POS_TOL) && (open_pos==INVALID_POS))
     {
       open_pos = current_pos;
@@ -315,6 +341,7 @@ void GateOpenerStateMachine::check()
     led_go->set(SLED_BLINK_FAST_1);
     etp_led_go_delay->event();
     Serial.println("Closed position reached.");
+    whc.sendJSON("cmd","debug","msg","Closed position reached.");
   }
 
   if ((abs(get_imotor())>max_imotor) && max_imotor!=INVALID_MAX_IMOTOR && past_imotor_delay)
@@ -323,6 +350,7 @@ void GateOpenerStateMachine::check()
     led_go->set(SLED_BLINK_SLOW);
     etp_led_go_delay->event();
     Serial.println("Motor current limit!");
+    whc.sendJSON("cmd","debug","msg","Motor current limit!");
   }
 
   if (current_state==0)

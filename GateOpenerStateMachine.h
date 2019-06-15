@@ -3,6 +3,7 @@
 #include "EnoughTimePassed.h"
 #include "SignalLED.h"
 #include <EEPROM.h>
+#include "WiHomeComm.h"
 #define NAVG 20
 #define NVM_VALID_KEY 223
 #define INVALID_POS 32767
@@ -34,6 +35,7 @@ class GateOpenerStateMachine
     EnoughTimePassed* etp_led_go_delay;
     SignalLED* led_go;
     bool past_imotor_delay;
+    bool just_stopped_flag;
     int nvm_offset;
     void nvm_save();
     void nvm_load();
@@ -58,6 +60,7 @@ class GateOpenerStateMachine
     int get_open_position();
     bool valid_closed_position();
     bool valid_open_position();
+    bool just_stopped();
     void open();
     void close();
     void stop();
