@@ -22,9 +22,9 @@ void GateOpenerStateMachine::dump_flash(int addr, int cnt)
 void GateOpenerStateMachine::nvm_save()
 {
   byte valid = NVM_VALID_KEY;
-  Serial.printf("nvm_save() with (nvm_offset=%d):\nvalid=%d  closed_pos=%d  auto_close_time=%d  max_imotor=%d  open_pos=%d\n",
-                nvm_offset, valid, closed_pos, auto_close_time, max_imotor, open_pos);
-  int size = sizeof(valid)+sizeof(closed_pos)+sizeof(auto_close_time)+sizeof(max_imotor)+sizeof(open_pos);
+  Serial.printf("nvm_save() with (nvm_offset=%d):\nvalid=%d  closed_pos=%d  auto_close_time=%d  max_imotor=%d  open_pos=%d  max_on_time=%d\n",
+                nvm_offset, valid, closed_pos, auto_close_time, max_imotor, open_pos, max_on_time);
+  int size = sizeof(valid)+sizeof(closed_pos)+sizeof(auto_close_time)+sizeof(max_imotor)+sizeof(open_pos)+sizeof(max_on_time);
   #if defined(ARDUINO_ARCH_ESP8266)
     EEPROM.begin(size+nvm_offset);
   #endif
@@ -34,6 +34,7 @@ void GateOpenerStateMachine::nvm_save()
   EEPROM.put(nvm_offset+(var_offset+=sizeof(closed_pos)), auto_close_time);
   EEPROM.put(nvm_offset+(var_offset+=sizeof(auto_close_time)), max_imotor);
   EEPROM.put(nvm_offset+(var_offset+=sizeof(max_imotor)), open_pos);
+  EEPROM.put(nvm_offset+(var_offset+=sizeof(open_pos)), max_on_time);
   #if defined(ARDUINO_ARCH_ESP8266)
     EEPROM.commit();
     EEPROM.end();
@@ -44,7 +45,7 @@ void GateOpenerStateMachine::nvm_save()
 void GateOpenerStateMachine::nvm_load()
 {
   byte valid;
-  int size = sizeof(valid)+sizeof(closed_pos)+sizeof(auto_close_time)+sizeof(max_imotor)+sizeof(open_pos);
+  int size = sizeof(valid)+sizeof(closed_pos)+sizeof(auto_close_time)+sizeof(max_imotor)+sizeof(open_pos)+sizeof(max_on_time);
   #if defined(ARDUINO_ARCH_ESP8266)
     EEPROM.begin(size+nvm_offset);
   #endif
@@ -54,6 +55,7 @@ void GateOpenerStateMachine::nvm_load()
   EEPROM.get(nvm_offset+(var_offset+=sizeof(closed_pos)), auto_close_time);
   EEPROM.get(nvm_offset+(var_offset+=sizeof(auto_close_time)), max_imotor);
   EEPROM.get(nvm_offset+(var_offset+=sizeof(max_imotor)), open_pos);
+  EEPROM.get(nvm_offset+(var_offset+=sizeof(open_pos)), max_on_time);
   #if defined(ARDUINO_ARCH_ESP8266)
     EEPROM.end();
   #endif
@@ -64,9 +66,10 @@ void GateOpenerStateMachine::nvm_load()
     auto_close_time = INVALID_AUTO_CLOSE_TIME;
     max_imotor = INVALID_MAX_IMOTOR;
     open_pos = INVALID_POS;
+    max_on_time = INVALID_MAX_ON_TIME;
   }
-  Serial.printf("nvm_load() result (nvm_offset=%d):\nvalid=%d  closed_pos=%d  auto_close_time=%d  max_imotor=%d  open_pos=%d\n",
-                nvm_offset, valid, closed_pos, auto_close_time, max_imotor, open_pos);
+  Serial.printf("nvm_load() result (nvm_offset=%d):\nvalid=%d  closed_pos=%d  auto_close_time=%d  max_imotor=%d  open_pos=%d  max_on_time=%d\n",
+                nvm_offset, valid, closed_pos, auto_close_time, max_imotor, open_pos, max_on_time);
 }
 
 GateOpenerStateMachine::GateOpenerStateMachine(unsigned int _motor_pinA, unsigned int _motor_pinB,
@@ -85,6 +88,7 @@ GateOpenerStateMachine::GateOpenerStateMachine(unsigned int _motor_pinA, unsigne
   imotor_offset = pos->read(isens_pin);
   etp_auto_close = new EnoughTimePassed(auto_close_time);
   etp_auto_close->event();
+  etp_max_on_time = new EnoughTimePassed(max_on_time);
   etp_imotor_delay = new EnoughTimePassed(IMOTOR_DELAY);
   past_imotor_delay = true;
   current_pos = pos->read(pot_pin);
@@ -111,6 +115,7 @@ void GateOpenerStateMachine::set_state(int state)
     current_state = state;
     past_imotor_delay = false;
     etp_imotor_delay->event();
+    etp_max_on_time->event();
     if (state==0)
       just_stopped_flag=true;
   }
@@ -173,6 +178,19 @@ void GateOpenerStateMachine::set_auto_close_time(unsigned long _auto_close_time)
 unsigned long GateOpenerStateMachine::get_auto_close_time()
 {
   return auto_close_time/1000;
+}
+
+void GateOpenerStateMachine::set_max_on_time(unsigned long _max_on_time)
+{
+  max_on_time = _max_on_time*1000;
+  nvm_save();
+  etp_max_on_time->change_intervall(max_on_time);
+  Serial.printf("Max on time set to %ds\n", max_on_time/1000);
+}
+
+unsigned long GateOpenerStateMachine::get_max_on_time()
+{
+  return max_on_time/1000;
 }
 
 bool GateOpenerStateMachine::learn_closed_position()
@@ -259,6 +277,11 @@ bool GateOpenerStateMachine::just_stopped()
   }
   else
     return false;
+}
+
+bool GateOpenerStateMachine::is_running()
+{
+  return (current_state != 0);
 }
 
 void GateOpenerStateMachine::open()
@@ -351,6 +374,15 @@ void GateOpenerStateMachine::check()
     etp_led_go_delay->event();
     Serial.println("Motor current limit!");
     whc.sendJSON("cmd","debug","msg","Motor current limit!");
+  }
+
+  if((current_state!=0) && (max_on_time!=INVALID_MAX_ON_TIME) && (etp_max_on_time->enough_time()))
+  {
+    set_state(0);
+    led_go->set(SLED_BLINK_FAST);
+    etp_led_go_delay->event();
+    Serial.println("On time limit!");
+    whc.sendJSON("cmd","debug","msg","On time limit!");
   }
 
   if (current_state==0)

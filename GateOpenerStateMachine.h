@@ -5,10 +5,11 @@
 #include <EEPROM.h>
 #include "WiHomeComm.h"
 #define NAVG 20
-#define NVM_VALID_KEY 223
+#define NVM_VALID_KEY 224
 #define INVALID_POS 32767
 #define INVALID_AUTO_CLOSE_TIME 0
 #define INVALID_MAX_IMOTOR 0
+#define INVALID_MAX_ON_TIME 0
 #define POS_TOL 3
 #define IMOTOR_DELAY 1000
 #define IMOTOR_ZERO_TOL 5
@@ -28,11 +29,13 @@ class GateOpenerStateMachine
     int imotor_offset;
     int max_imotor;
     unsigned long auto_close_time;
+    unsigned long max_on_time;
     Motor* motor;
     SmoothADS1015* pos;
     EnoughTimePassed* etp_auto_close;
     EnoughTimePassed* etp_imotor_delay;
     EnoughTimePassed* etp_led_go_delay;
+    EnoughTimePassed* etp_max_on_time;
     SignalLED* led_go;
     bool past_imotor_delay;
     bool just_stopped_flag;
@@ -52,6 +55,8 @@ class GateOpenerStateMachine
     void set_max_imotor(int _max_imotor);
     void set_auto_close_time(unsigned long _auto_close_time);
     unsigned long get_auto_close_time();
+    void set_max_on_time(unsigned long _max_on_time);
+    unsigned long get_max_on_time();
     bool learn_closed_position();
     bool learn_open_position();
     void set_open_position(int position);
@@ -61,6 +66,7 @@ class GateOpenerStateMachine
     bool valid_closed_position();
     bool valid_open_position();
     bool just_stopped();
+    bool is_running();
     void open();
     void close();
     void stop();
