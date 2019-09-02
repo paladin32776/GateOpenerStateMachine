@@ -336,6 +336,7 @@ void GateOpenerStateMachine::check()
     etp_auto_close->event();
   else
     Serial.print("#");
+
   if (etp_auto_close->enough_time() && auto_close_time!=INVALID_AUTO_CLOSE_TIME && closed_pos!=INVALID_POS && open_pos!=INVALID_POS)
   {
     set_state(1);
