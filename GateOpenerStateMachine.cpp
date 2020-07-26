@@ -62,6 +62,7 @@ void GateOpenerStateMachine::nvm_load()
   if (valid!=NVM_VALID_KEY)
   {
     Serial.println("EEPROM data invalid - using default values.");
+    whc.sendJSON("cmd","debug","msg","EEPROM data invalid - using default values.");
     closed_pos = INVALID_POS;
     auto_close_time = INVALID_AUTO_CLOSE_TIME;
     max_imotor = INVALID_MAX_IMOTOR;
@@ -173,6 +174,7 @@ void GateOpenerStateMachine::set_auto_close_time(unsigned long _auto_close_time)
   nvm_save();
   etp_auto_close->change_intervall(auto_close_time);
   Serial.printf("Auto close time set to %ds\n", auto_close_time/1000);
+  whc.sendJSON("cmd","debug","msg","Auto close set.","auto_close_time",auto_close_time/1000);
 }
 
 unsigned long GateOpenerStateMachine::get_auto_close_time()
@@ -186,6 +188,7 @@ void GateOpenerStateMachine::set_max_on_time(unsigned long _max_on_time)
   nvm_save();
   etp_max_on_time->change_intervall(max_on_time);
   Serial.printf("Max on time set to %ds\n", max_on_time/1000);
+  whc.sendJSON("cmd","debug","msg","Max on time set.","max_on_time",max_on_time/1000);
 }
 
 unsigned long GateOpenerStateMachine::get_max_on_time()
@@ -344,17 +347,28 @@ void GateOpenerStateMachine::check()
     whc.sendJSON("cmd","debug","msg","Auto close initiated.");
   }
 
-  if (((abs(get_imotor())<IMOTOR_ZERO_TOL) && (current_state==-1) && past_imotor_delay && (open_pos==INVALID_POS)) || ((open_pos!=INVALID_POS) && (abs(current_pos-open_pos)<POS_TOL) && (current_state==-1)))
+  // Stop motor if:
+  // No open position stored (open_pos==INVALID_POS), and arm ran into open position end switch: (imotor=0) && (current_state=-1) && (past_imotor_delay):
+  // or
+  // valid open position stored (open_pos!=INVALID_POS), and arm ran below open_position: (current_pos<open_pos+POS_TOL) && (current_state==-1)
+  if (((abs(get_imotor())<IMOTOR_ZERO_TOL) && (current_state==-1) && past_imotor_delay && (open_pos==INVALID_POS)) || ((open_pos!=INVALID_POS) && (current_pos<open_pos+POS_TOL) && (current_state==-1)))
   {
     set_state(0);
     led_go->set(SLED_BLINK_FAST_3);
     etp_led_go_delay->event();
-    Serial.println("Open position reached.");
-    whc.sendJSON("cmd","debug", "msg","Open position reached.",
-                 "imotor",get_imotor(), "current_imotor",current_imotor,
-                 "imotor_offset", imotor_offset);
-    if ((abs(current_pos-open_pos)>POS_TOL) && (open_pos==INVALID_POS))
+    if (open_pos!=INVALID_POS)
     {
+      Serial.println("Open position reached.");
+      whc.sendJSON("cmd","debug", "msg","Open position reached.",
+                   "imotor",get_imotor(), "current_imotor",current_imotor,
+                   "imotor_offset", imotor_offset);
+    }
+    else
+    {
+      Serial.println("Open end switch position reached.");
+      whc.sendJSON("cmd","debug", "msg","Open end switch position reached.",
+                   "imotor",get_imotor(), "current_imotor",current_imotor,
+                   "imotor_offset", imotor_offset);
       open_pos = current_pos;
       nvm_save();
     }
