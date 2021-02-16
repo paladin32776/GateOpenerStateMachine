@@ -2,8 +2,12 @@
 #include "Motor.h"
 #include "EnoughTimePassed.h"
 #include "SignalLED.h"
-#include <EEPROM.h>
 #include "WiHomeComm.h"
+#include "ConfigFileJSON.h"
+
+#ifndef GATEOPENERSTATEMACHINE_H
+#define GATEOPENERSTATEMACHINE_H
+
 #define NAVG 20
 #define NVM_VALID_KEY 224
 #define INVALID_POS 32767
@@ -14,6 +18,19 @@
 #define IMOTOR_DELAY 1000
 #define IMOTOR_ZERO_TOL 5
 #define LED_GO_DELAY 3000
+
+// Possible HomeKit values for CURRENT_DOOR_STATE, TARGET_DOOR_STATE, and OBSTRUCTION_DETECTED:
+#define HK_CURRENT_DOOR_STATE_OPEN 0
+#define HK_CURRENT_DOOR_STATE_CLOSED 1
+#define HK_CURRENT_DOOR_STATE_OPENING 2
+#define HK_CURRENT_DOOR_STATE_CLOSING 3
+#define HK_CURRENT_DOOR_STATE_STOPPED 4
+#define HK_CURRENT_DOOR_STATE_UNKNOWN 255
+#define HK_TARGET_DOOR_STATE_OPEN 0
+#define HK_TARGET_DOOR_STATE_CLOSED 1
+#define HK_TARGET_DOOR_STATE_UNKNOWN 255
+#define HK_OBSTRUCTION_DETECTED true
+#define HK_NO_OBSTRUCTION_DETECTED false
 
 class GateOpenerStateMachine
 {
@@ -40,6 +57,7 @@ class GateOpenerStateMachine
     bool past_imotor_delay;
     bool just_stopped_flag;
     int nvm_offset;
+    ConfigFileJSON* config;
     void nvm_save();
     void nvm_load();
   public:
@@ -50,6 +68,9 @@ class GateOpenerStateMachine
     int get_state();
     int get_position();
     int get_position_percent();
+    int get_hk_current_door_state();
+    int get_hk_target_door_state();
+    bool get_hk_obstruction_detected();
     int get_imotor();
     int get_max_imotor();
     void set_max_imotor(int _max_imotor);
@@ -74,3 +95,5 @@ class GateOpenerStateMachine
     void check();
     void dump_flash(int addr, int cnt);
 };
+
+#endif // GATEOPENERSTATEMACHINE_H

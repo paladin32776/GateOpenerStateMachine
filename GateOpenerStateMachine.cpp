@@ -3,74 +3,27 @@ extern WiHomeComm whc;
 
 void GateOpenerStateMachine::dump_flash(int addr, int cnt)
 {
-  byte x;
-  Serial.printf("\n*** FLASH DUMP BEGIN ***");
-  EEPROM.begin(addr+cnt);
-  for (int n=addr; n<addr+cnt; n++)
-  {
-      x = EEPROM.read(n);
-      if ((n-addr)%16==0)
-        Serial.printf("\n%d  ", n);
-      else if (n==addr)
-        Serial.println();
-      Serial.printf("%d ",x);
-  }
-  Serial.printf("\n*** FLASH DUMP END ***\n");
-  EEPROM.end();
+  config->dump();
 }
 
 void GateOpenerStateMachine::nvm_save()
 {
-  byte valid = NVM_VALID_KEY;
-  Serial.printf("nvm_save() with (nvm_offset=%d):\nvalid=%d  closed_pos=%d  auto_close_time=%d  max_imotor=%d  open_pos=%d  max_on_time=%d\n",
-                nvm_offset, valid, closed_pos, auto_close_time, max_imotor, open_pos, max_on_time);
-  int size = sizeof(valid)+sizeof(closed_pos)+sizeof(auto_close_time)+sizeof(max_imotor)+sizeof(open_pos)+sizeof(max_on_time);
-  #if defined(ARDUINO_ARCH_ESP8266)
-    EEPROM.begin(size+nvm_offset);
-  #endif
-  int var_offset=1;
-  EEPROM.write(nvm_offset, valid);
-  EEPROM.put(nvm_offset+var_offset, closed_pos);
-  EEPROM.put(nvm_offset+(var_offset+=sizeof(closed_pos)), auto_close_time);
-  EEPROM.put(nvm_offset+(var_offset+=sizeof(auto_close_time)), max_imotor);
-  EEPROM.put(nvm_offset+(var_offset+=sizeof(max_imotor)), open_pos);
-  EEPROM.put(nvm_offset+(var_offset+=sizeof(open_pos)), max_on_time);
-  #if defined(ARDUINO_ARCH_ESP8266)
-    EEPROM.commit();
-    EEPROM.end();
-  #endif
-  delay(100);
+  config->set("closed_pos", closed_pos, "open_pos", open_pos, "auto_close_time", auto_close_time,
+              "max_imotor", max_imotor, "max_on_time", max_on_time);
+  config->dump();
 }
 
 void GateOpenerStateMachine::nvm_load()
 {
-  byte valid;
-  int size = sizeof(valid)+sizeof(closed_pos)+sizeof(auto_close_time)+sizeof(max_imotor)+sizeof(open_pos)+sizeof(max_on_time);
-  #if defined(ARDUINO_ARCH_ESP8266)
-    EEPROM.begin(size+nvm_offset);
-  #endif
-  int var_offset=1;
-  valid = EEPROM.read(nvm_offset);
-  EEPROM.get(nvm_offset+var_offset, closed_pos);
-  EEPROM.get(nvm_offset+(var_offset+=sizeof(closed_pos)), auto_close_time);
-  EEPROM.get(nvm_offset+(var_offset+=sizeof(auto_close_time)), max_imotor);
-  EEPROM.get(nvm_offset+(var_offset+=sizeof(max_imotor)), open_pos);
-  EEPROM.get(nvm_offset+(var_offset+=sizeof(open_pos)), max_on_time);
-  #if defined(ARDUINO_ARCH_ESP8266)
-    EEPROM.end();
-  #endif
-  if (valid!=NVM_VALID_KEY)
-  {
-    Serial.println("EEPROM data invalid - using default values.");
-    whc.sendJSON("cmd","debug","msg","EEPROM data invalid - using default values.");
-    closed_pos = INVALID_POS;
-    auto_close_time = INVALID_AUTO_CLOSE_TIME;
-    max_imotor = INVALID_MAX_IMOTOR;
-    open_pos = INVALID_POS;
-    max_on_time = INVALID_MAX_ON_TIME;
-  }
-  Serial.printf("nvm_load() result (nvm_offset=%d):\nvalid=%d  closed_pos=%d  auto_close_time=%d  max_imotor=%d  open_pos=%d  max_on_time=%d\n",
-                nvm_offset, valid, closed_pos, auto_close_time, max_imotor, open_pos, max_on_time);
+  closed_pos = INVALID_POS;
+  open_pos = INVALID_POS;
+  auto_close_time = INVALID_AUTO_CLOSE_TIME;
+  max_imotor = INVALID_MAX_IMOTOR;
+  max_on_time = INVALID_MAX_ON_TIME;
+  config->get("closed_pos", &closed_pos, "open_pos", &open_pos, "auto_close_time", &auto_close_time,
+              "max_imotor", &max_imotor, "max_on_time", &max_on_time);
+  Serial.printf("nvm_load() result:\nclosed_pos=%d  open_pos=%d  auto_close_time=%d  max_imotor=%d  max_on_time=%d\n",
+                closed_pos, open_pos, auto_close_time, max_imotor, max_on_time);
 }
 
 GateOpenerStateMachine::GateOpenerStateMachine(unsigned int _motor_pinA, unsigned int _motor_pinB,
@@ -81,6 +34,7 @@ GateOpenerStateMachine::GateOpenerStateMachine(unsigned int _motor_pinA, unsigne
   pot_pin = _pot_pin;
   isens_pin = _isens_pin;
   nvm_offset = _nvm_offset;
+  config = new ConfigFileJSON("gateopener.cfg");
   nvm_load();
   motor = new Motor(_motor_pinA, _motor_pinB);
   pos = new SmoothADS1015(14,2); // SDA GPIO pin, SCL GPIO pin
@@ -149,6 +103,56 @@ int GateOpenerStateMachine::get_position_percent()
       pos=0;
     return pos;
   }
+}
+
+int GateOpenerStateMachine::get_hk_current_door_state()
+{
+		switch(get_state())
+		{
+			case 0:
+				switch (get_position_percent())
+				{
+					case 0:
+						return HK_CURRENT_DOOR_STATE_OPEN;
+					case 100:
+						return HK_CURRENT_DOOR_STATE_CLOSED;
+					default:
+						return HK_CURRENT_DOOR_STATE_STOPPED;
+				}
+			case 1:
+				return HK_CURRENT_DOOR_STATE_CLOSING;
+			case -1:
+				return HK_CURRENT_DOOR_STATE_OPENING;
+		}
+}
+
+int GateOpenerStateMachine::get_hk_target_door_state()
+{
+	switch (get_state())
+	{
+		case 1:
+			return HK_TARGET_DOOR_STATE_CLOSED;
+		case -1:
+			return HK_TARGET_DOOR_STATE_OPEN;
+		case 0:
+			switch(get_position_percent())
+			{
+				case 0:
+					return HK_TARGET_DOOR_STATE_OPEN;
+				case 100:
+					return HK_TARGET_DOOR_STATE_CLOSED;
+				default:
+					return HK_TARGET_DOOR_STATE_UNKNOWN;
+			}
+	}
+}
+
+bool GateOpenerStateMachine::get_hk_obstruction_detected()
+{
+  if (get_state()==0 && get_position_percent()>0 && get_position_percent()<100)
+    return HK_OBSTRUCTION_DETECTED;
+  else
+    return HK_NO_OBSTRUCTION_DETECTED;
 }
 
 int GateOpenerStateMachine::get_imotor()
